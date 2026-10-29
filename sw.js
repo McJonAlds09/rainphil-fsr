@@ -1,5 +1,5 @@
 /* Offline cache. build.py stamps the version so each release installs a fresh cache. */
-const CACHE = 'rainphil-fsr-1.1.0-m2-20261030063402';
+const CACHE = 'rainphil-fsr-1.2.0-m3-20261030074912';
 const FILES = ['./', 'index.html', 'manifest.webmanifest', 'icons/icon-180.png', 'icons/icon-192.png', 'icons/icon-512.png'];
 
 self.addEventListener('install', e => e.waitUntil(caches.open(CACHE).then(c => c.addAll(FILES))));
