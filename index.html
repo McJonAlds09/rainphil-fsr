@@ -10,7 +10,7 @@
 <meta name="theme-color" content="#F2F2F7" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; frame-src blob:; object-src 'none'; connect-src 'self' blob: data: https://script.google.com https://script.googleusercontent.com; base-uri 'none'; form-action 'none'">
-<meta name="fsr-build" content="1.7.0-20261106174529">
+<meta name="fsr-build" content="1.7.0-20261106175237">
 <title>RainPhil FSR</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icons/icon-180.png">
@@ -2084,6 +2084,7 @@ function bindRows(root, list) {
 function rowMenu(btn, r) {
   const items = [{ label: 'Open', icon: 'file', fn: () => go('editor', r.id) }, { label: 'New Report from This', icon: 'doc-dup', fn: () => duplicateReport(r) }];
   if (r.status !== 'draft' && r.status !== 'void') items.push({ label: 'View PDF', icon: 'eye', fn: () => go('preview', r.id) });
+  if (r.status === 'final' || r.status === 'sent') items.push({ label: 'Email to Client', icon: 'mail', fn: () => sendSheet(r) });
   if (!r.fsrNo) items.push({ label: 'Delete Draft', icon: 'trash', destr: true, fn: () => deleteDraft(r) });
   else if (r.status !== 'void') items.push({ label: 'Void…', icon: 'slash', destr: true, fn: () => voidReport(r) });
   menu(btn, items);
@@ -2158,14 +2159,14 @@ const selCell = r => `<div class="cell tap ic-row" data-sel="${r.id}"><span clas
 AFTER.reports = async (filter = 'all') => {
   const all = await myReports();
   let f = filter;
-  const selBar = () => `<span class="l2">${SEL.size} selected</span><span class="spacer"></span><button class="btn filled capsule" id="selgo" ${SEL.size ? '' : 'disabled'}>${ic('download', 'sm')}Export…</button>`;
+  const selBar = () => `<span class="l2">${SEL.size} selected</span><span class="spacer"></span><button class="btn filled capsule" id="selgo" ${SEL.size ? '' : 'disabled'}>${ic('download', 'sm')}Export…</button><button class="btn tinted capsule" id="selmail" ${SEL.size > 1 ? '' : 'disabled'}>${ic('mail', 'sm')}Email to Client</button>`;
   const paint = () => {
     const q = $('#rq').value.trim().toLowerCase();
     const list = shownReports = all.filter(r => (f === 'all' || (f === 'tosend' ? needsSend(r) : r.status === f)) && (!q || [r.fsrNo, r.customer.name, r.instrument.serial, r.instrument.model, r.problem].join(' ').toLowerCase().includes(q)));
     $('#rlist').innerHTML = (list.length ? `<div class="gsec"><div class="group">${list.map(SEL ? selCell : rowCell).join('')}</div><div class="sec-f">${list.length} report${list.length === 1 ? '' : 's'}</div></div>` : `<div class="empty">${ic('search', 'xl')}<b class="headline">${q ? 'No matches' : all.length ? EMPTY_FILTER[f] || 'No reports' : 'No reports yet'}</b><span class="l2">${q ? 'Try an FSR #, customer name or serial #.' : all.length ? 'Reports with this status will appear here.' : 'Tap + to start your first service report.'}</span></div>`)
       + (SEL ? `<div class="toolbar" id="selbar">${selBar()}</div>` : '');
     if (!SEL) return bindRows($('#rlist'), list);
-    const bindGo = () => $('#selgo').onclick = () => go('export', { ids: [...SEL] });
+    const bindGo = () => { $('#selgo').onclick = () => go('export', { ids: [...SEL] }); $('#selmail').onclick = () => batchSendSheet([...SEL]); };
     $$('[data-sel]').forEach(el => el.onclick = () => {
       const id = el.dataset.sel, on = !SEL.has(id);
       on ? SEL.add(id) : SEL.delete(id);
@@ -2292,7 +2293,7 @@ function toolbarFor(r) {
   if (r.status === 'draft') return `<button class="btn plain" onclick="go('preview','${r.id}')">${ic('eye', 'sm')}Preview</button>${saved}<span class="spacer"></span><button class="btn filled capsule" onclick="startSigning()">${ic('signature', 'sm')}Review &amp; Sign</button>`;
   if (r.status === 'await') return `<button class="btn plain" onclick="go('preview','${r.id}')">${ic('eye', 'sm')}Preview</button><span class="spacer"></span><button class="btn filled capsule" onclick="signFlow(3)">${ic('hand', 'sm')}Get Customer Signature</button>`;
   if (r.status === 'void') return `<span class="spacer"></span><button class="btn plain" onclick="go('reports')">Back to Reports</button>`;
-  return `<button class="btn plain" onclick="reviseReport()">${ic('pen', 'sm')}Revise</button><span class="spacer"></span><button class="btn plain" onclick="exportReportMenu(this)">${ic('download', 'sm')}Data</button><button class="btn tinted capsule" onclick="go('preview','${r.id}')">${ic('eye', 'sm')}View PDF</button><button class="btn filled capsule" onclick="sendSheet(R)">${ic('mail', 'sm')}Send</button>`;
+  return `<button class="btn plain" onclick="reviseReport()">${ic('pen', 'sm')}Revise</button><span class="spacer"></span><button class="btn plain" onclick="exportReportMenu(this)">${ic('download', 'sm')}Data</button><button class="btn tinted capsule" onclick="go('preview','${r.id}')">${ic('eye', 'sm')}View PDF</button><button class="btn filled capsule" onclick="sendSheet(R)">${ic('mail', 'sm')}Email to Client</button>`;
 }
 AFTER.editor = async () => {
   if (!R) return;
@@ -3527,6 +3528,7 @@ SCREENS.preview = async id => {
     <div class="segmented" id="pvseg"><button data-k="client" class="${pvKind === 'client' ? 'on' : ''}">Client</button><button data-k="internal" class="${pvKind === 'internal' ? 'on' : ''}">Internal</button></div></div>
     <div class="foot l2" id="pvname" style="margin-bottom:10px"></div>
     <div class="qlook" style="padding:0;overflow:hidden"><iframe id="pvframe" title="PDF preview" style="width:100%;height:calc(100dvh - 230px);min-height:500px;border:0;background:#fff"></iframe></div>
+    <div class="row" id="pvsend" style="display:none;margin-top:12px"><span class="foot l2" style="flex:1">Signed copy – ready to email to the customer.</span><button class="btn filled capsule" id="pvmail">${ic('mail', 'sm')}Email to Client</button></div>
     <div class="row" id="pvmore" style="display:none;margin-top:12px;gap:10px;align-items:center"><span class="foot l2" style="flex:1" id="pvpages"></span><button class="btn small" id="pvopen">Open All Pages</button></div>`;
 };
 AFTER.preview = async () => {
@@ -3547,6 +3549,7 @@ AFTER.preview = async () => {
   };
   $$('#pvseg button').forEach(b => b.addEventListener('click', () => { pvKind = b.dataset.k; paint(); }));
   $('#pvshare').onclick = () => sharePdf(R, pvKind);
+  if (R.status === 'final' || R.status === 'sent') { $('#pvsend').style.display = 'flex'; $('#pvmail').onclick = () => sendSheet(R); }
   paint().catch(e => banner('Could not create the PDF: ' + e.message, 'x', null, 'var(--red)'));
 };
 
@@ -4255,12 +4258,10 @@ let _sendWait = null;
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState !== 'visible' || !_sendWait) return;
   const w = _sendWait; _sendWait = null;
-  setTimeout(() => confirmBox('Did you send it?', `FSR # ${w.fsr} to ${w.to}. Choose Not Yet if you still need to attach the PDF or send it.`, 'Yes, Sent', async () => {
-    const r = await DB.get('reports', w.id); if (!r) return;
-    await markSent(r, w.to);
-    if (R && R.id === r.id) R = r;
+  setTimeout(() => confirmBox('Did you send it?', `FSR # ${w.fsr.join(', ')} to ${w.to}. Choose Not Yet if you still need to attach the PDF${w.fsr.length > 1 ? 's' : ''} or send it.`, 'Yes, Sent', async () => {
+    for (const id of w.ids) { const r = await DB.get('reports', id); if (!r) continue; await markSent(r, w.to); if (R && R.id === r.id) R = r; }
     closeSheet(); refreshUploadUI(); banner('Marked as sent', 'send');
-    if (Router.cur === 'editor' || Router.cur === 'home' || Router.cur === 'reports') go(Router.cur, Router.arg, true);
+    if (SEL) endSelect(); else if (Router.cur === 'editor' || Router.cur === 'home' || Router.cur === 'reports') go(Router.cur, Router.arg, true);
   }), 400);
 });
 
@@ -4319,7 +4320,7 @@ function sendSheet(r) {
     if (!navigator.onLine) return banner('Needs internet – the report stays in To Send', 'clock', null, 'var(--orange)');
     if (!valid(to())) return banner('Please check the customer’s email address', 'mail', null, 'var(--orange)');
     const cc = $('#sd-cc', host).value.trim();
-    _sendWait = { id: r.id, fsr: r.fsrNo, to: to() };
+    _sendWait = { ids: [r.id], fsr: [r.fsrNo], to: to() };
     window.open(composeUrl(r, to(), valid(cc) ? cc : ''), '_blank');
   };
   $('#sd-copy', host).onclick = async () => {
@@ -4359,6 +4360,79 @@ function emailSettingsSheet() {
   $('#es-reset', host).onclick = async () => {
     const x = { ...(App.user.settings || {}) }; ['sendSubject', 'sendBody', 'sendCcSelf', 'owaUrl'].forEach(k => delete x[k]);
     App.user.settings = x; await DB.put('profiles', App.user); closeSheet(); banner('Email settings reset', 'mail');
+  };
+}
+
+/* ---------- several reports for one customer in one email ---------- */
+async function shareFiles(files) {
+  const list = files.map(f => new File([f.blob], f.name, { type: 'application/pdf' }));
+  if (navigator.canShare && navigator.canShare({ files: list })) {
+    try { await navigator.share({ files: list }); return 'shared'; } catch (e) { if (e.name === 'AbortError') return 'cancelled'; }
+  }
+  for (const f of files) await shareOrDownload(f.blob, f.name);
+  return 'downloaded';
+}
+const customerKey = r => (r.customer.id || r.customer.name || '').toString().trim().toLowerCase();
+
+async function batchSendSheet(ids) {
+  const all = await myReports(), list = ids.map(id => all.find(r => r.id === id)).filter(Boolean).sort((a, b) => String(a.fsrNo).localeCompare(String(b.fsrNo)));
+  if (list.length < 2) return banner('Pick two or more reports', 'mail', null, 'var(--orange)');
+  if (list.some(r => !(r.status === 'final' || r.status === 'sent') || !r.hash)) return banner('Only signed reports can be emailed', 'lock', null, 'var(--orange)');
+  if (new Set(list.map(customerKey)).size > 1) return banner('Pick reports of one customer only', 'mail', null, 'var(--orange)');
+  const s = settingsOf(App.user), me = App.user.email || '', cust = list[0].customer.name || '';
+  const to0 = list.map(recipientOf).find(Boolean) || '';
+  const host = sheet(`Email ${list.length} Reports`, `<button class="btn plain" onclick="closeSheet()">Close</button>`, '',
+    `<div style="padding:16px"><div class="foot l2" style="margin-bottom:10px">${esc(cust)}</div>
+      <div class="sec-h">1 · Recipient</div>
+      <div class="group"><label class="cell"><span class="lbl" style="min-width:60px">To</span><input class="val" id="bs-to" inputmode="email" autocapitalize="off" value="${esc(to0)}" placeholder="name@customer.com"></label>
+        <label class="cell"><span class="lbl" style="min-width:60px">Cc</span><input class="val" id="bs-cc" inputmode="email" autocapitalize="off" value="${esc(s.sendCcSelf === false ? '' : me)}" placeholder="Optional"></label></div>
+      <div class="sec-h" style="margin-top:20px">2 · Review each report <span style="color:var(--red)">· required</span></div>
+      <div class="group">${list.map(r => `<div class="cell" style="flex-direction:column;align-items:stretch;gap:6px">
+          <div class="row"><b>FSR # ${esc(r.fsrNo)}</b><span class="spacer"></span><button class="btn small" data-rv="${r.id}">Review PDF</button></div>
+          <span>${esc([r.instrument.brand, r.instrument.model].filter(Boolean).join(' ') || 'No model entered')} · <span class="mono">S/N ${esc(r.instrument.serial || 'not entered')}</span></span>
+          <label class="row" style="opacity:.45" data-ckrow="${r.id}"><input type="checkbox" data-ck="${r.id}" disabled><span class="foot" style="flex:1">Reviewed all pages; model and serial no. are correct</span></label></div>`).join('')}</div>
+      <div class="sec-h" style="margin-top:20px">3 · Save the PDFs</div>
+      <div class="group"><button class="cell ic-row" id="bs-save" style="opacity:.5">${sq('share', 'var(--green)')}<span style="flex:1">Save ${list.length} Client PDFs<br><span class="foot l2">Choose “Save to Files”. Works without internet.</span></span>${chev}</button></div>
+      <div class="sec-h" style="margin-top:20px">4 · Open the Outlook draft</div>
+      <div class="group"><button class="cell ic-row" id="bs-open" style="opacity:.5">${sq('mail', 'var(--blue)')}<span style="flex:1">Open Outlook Draft<br><span class="foot l2">${navigator.onLine ? 'Recipient, subject and message are filled in.' : 'Needs internet. These reports stay in your “To Send” list.'}</span></span>${chev}</button></div>
+      <div class="sec-f">In the draft tap Attach → Browse this device → pick all ${list.length} saved PDFs, then send. When you return here the app asks if it was sent.</div>
+      <div class="group" style="margin-top:8px"><button class="cell" id="bs-mark" style="color:var(--tint);opacity:.5">Mark All as Sent</button></div></div>`);
+  const to = () => $('#bs-to', host).value.trim(), valid = v => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v);
+  const seen = new Set();
+  const ok = () => list.every(r => seen.has(r.id) && $(`[data-ck="${r.id}"]`, host).checked);
+  const gate = () => {
+    list.forEach(r => { $(`[data-ck="${r.id}"]`, host).disabled = !seen.has(r.id); $(`[data-ckrow="${r.id}"]`, host).style.opacity = seen.has(r.id) ? 1 : .45; });
+    const g = ok(); $('#bs-save', host).style.opacity = $('#bs-mark', host).style.opacity = g ? 1 : .5; $('#bs-open', host).style.opacity = g && navigator.onLine ? 1 : .5;
+  };
+  const needReview = () => banner('Review every report and confirm model and serial no. first (step 2)', 'eye', null, 'var(--orange)');
+  $$('[data-rv]', host).forEach(b => b.onclick = async () => {
+    const r = list.find(x => x.id === b.dataset.rv);
+    try { const url = URL.createObjectURL((await clientPdfFor(r)).blob); window.open(url, '_blank'); setTimeout(() => URL.revokeObjectURL(url), 120000); seen.add(r.id); gate(); }
+    catch (e) { banner('Could not create the PDF: ' + e.message, 'x', null, 'var(--red)'); }
+  });
+  $$('[data-ck]', host).forEach(c => c.onchange = gate);
+  $('#bs-save', host).onclick = async () => {
+    if (!ok()) return needReview();
+    try { await shareFiles(await Promise.all(list.map(clientPdfFor))); } catch (e) { banner('Could not create the PDFs: ' + e.message, 'x', null, 'var(--red)'); }
+  };
+  $('#bs-open', host).onclick = () => {
+    if (!ok()) return needReview();
+    if (!navigator.onLine) return banner('Needs internet – the reports stay in To Send', 'clock', null, 'var(--orange)');
+    if (!valid(to())) return banner('Please check the customer’s email address', 'mail', null, 'var(--orange)');
+    const cc = $('#bs-cc', host).value.trim(), nos = list.map(r => r.fsrNo);
+    const lines = list.map(r => `FSR # ${r.fsrNo} – ${[r.instrument.brand, r.instrument.model].filter(Boolean).join(' ')}${r.instrument.serial ? ' (S/N ' + r.instrument.serial + ')' : ''} – ${visitDates(r.service) || ''}`).join('\n');
+    const subject = `FSR # ${nos.join(', ')} – Service Reports – ${cust}`;
+    const body = `Dear ${list[0].contact.name || 'Sir/Madam'},\n\nPlease find attached the following Field Service Reports:\n\n${lines}\n\nThank you.\n\n${App.user.name || ''}\n${App.user.designation || ''}\nRainPhil Inc.`;
+    const q = [['to', to()], valid(cc) && ['cc', cc], ['subject', subject], ['body', body]].filter(Boolean).map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join('&');
+    _sendWait = { ids: list.map(r => r.id), fsr: nos, to: to() };
+    window.open(`${sendSetting('owaUrl').replace(/\?.*$/, '')}?${q}`, '_blank');
+  };
+  $('#bs-mark', host).onclick = async () => {
+    if (!ok()) return needReview();
+    if (!valid(to())) return banner('Add the customer’s email address first', 'mail', null, 'var(--orange)');
+    for (const r of list) await markSent(r, to());
+    closeSheet(); banner(`${list.length} reports marked as sent`, 'send');
+    if (SEL) endSelect(); else go(Router.cur, Router.arg, true);
   };
 }
 
