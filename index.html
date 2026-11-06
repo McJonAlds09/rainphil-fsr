@@ -10,7 +10,7 @@
 <meta name="theme-color" content="#F2F2F7" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; frame-src blob:; object-src 'none'; connect-src 'self' blob: data: https://script.google.com https://script.googleusercontent.com; base-uri 'none'; form-action 'none'">
-<meta name="fsr-build" content="1.7.0-20261106163317">
+<meta name="fsr-build" content="1.7.0-20261106170308">
 <title>RainPhil FSR</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icons/icon-180.png">
@@ -1234,12 +1234,13 @@ const dataURLToBlob = async url => (await fetch(url)).blob();
 async function shareOrDownload(blob, name) {
   const file = new File([blob], name, { type: blob.type });
   if (navigator.canShare && navigator.canShare({ files: [file] })) {
-    try { await navigator.share({ files: [file], title: name }); return; } catch (e) { if (e.name === 'AbortError') return; }
+    try { await navigator.share({ files: [file], title: name }); return 'shared'; } catch (e) { if (e.name === 'AbortError') return 'cancelled'; }
   }
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob); a.download = name;
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(a.href), 30000);
+  return 'downloaded';
 }
 
 /* ---- db.js ---- */
@@ -1776,7 +1777,7 @@ async function unlockAs(p) {
     const act = App.pendingActivation; App.pendingActivation = null;
     if (act) handleActivation(act);
     else if (!blockState(p).left) banner('No FSR numbers on this profile – add your block key', 'hash', { label: 'Add', fn: () => addBlockSheet() }, 'var(--orange)');
-    setTimeout(() => syncUploads(), 1500); // copy any signed reports that are waiting to the office register
+    setTimeout(() => syncUploads(), 1500); setTimeout(() => remindUnsent(), 4000); // copy any signed reports that are waiting to the office register
   }, 380);
   touch();
 }
@@ -2074,7 +2075,7 @@ const audit = (r, e) => r.audit.push({ t: now(), e });
 /* ---------- list rows ---------- */
 const rowCell = r => `<div class="cell tap ic-row" data-open="${r.id}">${sq(ST[r.status][3], ST[r.status][2])}
   <span class="t"><b class="strong">${esc(reportTitle(r))}</b><span>${esc(reportSub(r))}</span></span>
-  <span class="col" style="align-items:flex-end;gap:4px">${cap(r.status)}<span class="cap l2">${esc(fmtDay(r.updatedAt))}</span>${uploadMini(r)}</span>
+  <span class="col" style="align-items:flex-end;gap:4px">${cap(r.status)}<span class="cap l2">${esc(fmtDay(r.updatedAt))}</span>${uploadMini(r)}${sendMini(r)}</span>
   <button class="icon-only" data-more="${r.id}" aria-label="More">${ic('dots')}</button></div>`;
 function bindRows(root, list) {
   $$('[data-open]', root).forEach(el => el.onclick = e => { if (!e.target.closest('[data-more]')) go('editor', el.dataset.open); });
@@ -2125,6 +2126,7 @@ SCREENS.home = async () => {
     <button class="widget" onclick="go('reports','draft')">${sq('pen', 'var(--gray)')}<span class="n">${n('draft')}</span><span class="foot l2">Drafts</span></button>
     <button class="widget" onclick="go('reports','await')">${sq('clock', 'var(--orange)')}<span class="n">${n('await')}</span><span class="foot l2">Awaiting customer signature</span></button>
     <button class="widget" onclick="go('reports','final')">${sq('shield', 'var(--green)')}<span class="n">${done}</span><span class="foot l2">Signed this month</span></button>
+    <button class="widget" onclick="go('reports','tosend')">${sq('mail', 'var(--blue)')}<span class="n">${list.filter(needsSend).length}</span><span class="foot l2">To send to customer</span></button>
     ${(() => { const s = blockState(App.user); return `<button class="widget" onclick="go('settings')" style="flex-direction:row;align-items:center;gap:12px">${blockRing(s, 70)}<span class="col" style="gap:2px"><b class="headline">Numbers left</b><span class="foot l2">${s.active ? `Next FSR # ${s.nextNo}` : 'Add a block key'}</span>${s.queued.length ? `<span class="foot" style="color:var(--c-final)">Next block ready</span>` : s.left <= LOW_LEFT ? `<span class="foot" style="color:var(--c-await)">Request your next block</span>` : ''}</span></button>`; })()}
   </div>
   <div class="gsec"><div class="sec-h">Recent<span class="spacer"></span>${list.length ? `<button class="btn plain" style="min-height:0;padding:0;font-size:15px;text-transform:none" onclick="go('reports')">See All</button>` : ''}</div>
@@ -2140,8 +2142,8 @@ async function createReport() {
 }
 
 /* ---------- report list ---------- */
-const FILTERS = [['all', 'All'], ['draft', 'Drafts'], ['await', 'Awaiting Signature'], ['final', 'Final'], ['sent', 'Sent'], ['void', 'VOID']];
-const EMPTY_FILTER = { draft: 'No drafts', await: 'Nothing awaiting signature', final: 'No final reports', sent: 'No sent reports', void: 'No voided reports' };
+const FILTERS = [['all', 'All'], ['draft', 'Drafts'], ['await', 'Awaiting Signature'], ['final', 'Final'], ['tosend', 'To Send'], ['sent', 'Sent'], ['void', 'VOID']];
+const EMPTY_FILTER = { draft: 'No drafts', await: 'Nothing awaiting signature', final: 'No final reports', tosend: 'Nothing waiting to be sent', sent: 'No sent reports', void: 'No voided reports' };
 SCREENS.reports = async (filter = 'all') => `
   <div class="row" style="margin:-6px 0 14px"><div class="search">${ic('search', 'sm')}<input id="rq" placeholder="FSR #, customer, serial" autocomplete="off"></div></div>
   <div class="scope" id="rf" style="margin-bottom:18px">${FILTERS.map(f => `<button data-f="${f[0]}" class="${f[0] === filter ? 'on' : ''}">${f[1]}</button>`).join('')}</div>
@@ -2159,7 +2161,7 @@ AFTER.reports = async (filter = 'all') => {
   const selBar = () => `<span class="l2">${SEL.size} selected</span><span class="spacer"></span><button class="btn filled capsule" id="selgo" ${SEL.size ? '' : 'disabled'}>${ic('download', 'sm')}Export…</button>`;
   const paint = () => {
     const q = $('#rq').value.trim().toLowerCase();
-    const list = shownReports = all.filter(r => (f === 'all' || r.status === f) && (!q || [r.fsrNo, r.customer.name, r.instrument.serial, r.instrument.model, r.problem].join(' ').toLowerCase().includes(q)));
+    const list = shownReports = all.filter(r => (f === 'all' || (f === 'tosend' ? needsSend(r) : r.status === f)) && (!q || [r.fsrNo, r.customer.name, r.instrument.serial, r.instrument.model, r.problem].join(' ').toLowerCase().includes(q)));
     $('#rlist').innerHTML = (list.length ? `<div class="gsec"><div class="group">${list.map(SEL ? selCell : rowCell).join('')}</div><div class="sec-f">${list.length} report${list.length === 1 ? '' : 's'}</div></div>` : `<div class="empty">${ic('search', 'xl')}<b class="headline">${q ? 'No matches' : all.length ? EMPTY_FILTER[f] || 'No reports' : 'No reports yet'}</b><span class="l2">${q ? 'Try an FSR #, customer name or serial #.' : all.length ? 'Reports with this status will appear here.' : 'Tap + to start your first service report.'}</span></div>`)
       + (SEL ? `<div class="toolbar" id="selbar">${selBar()}</div>` : '');
     if (!SEL) return bindRows($('#rlist'), list);
@@ -2280,17 +2282,17 @@ function lockedNote() {
   const msg = {
     await: ['clock', 'var(--orange)', 'Waiting for the customer to sign. Details are locked.'],
     final: ['shield', 'var(--green)', `Signed and locked ${fmtDateTime(R.signedAt)}. Use Revise to make changes.`],
-    sent: ['send', 'var(--blue)', 'Signed and sent. Use Revise to make changes.'],
+    sent: ['send', 'var(--blue)', `${sentLabel(R)}. Use Revise to make changes.`],
     void: ['slash', 'var(--red)', `Voided: ${R.voidReason || ''}`],
   }[R.status];
-  return `<div class="group" style="margin-bottom:22px"><div class="cell ic-row">${sq(msg[0], msg[1])}<span style="flex:1">${esc(msg[2])}</span></div>${uploadCell(R)}</div>`;
+  return `<div class="group" style="margin-bottom:22px"><div class="cell ic-row">${sq(msg[0], msg[1])}<span style="flex:1">${esc(msg[2])}</span></div>${uploadCell(R)}${(R.status === 'final' || R.status === 'sent') ? sendCell(R) : ''}</div>`;
 }
 function toolbarFor(r) {
   const saved = `<span class="saved" id="saved">${ic('check', 'xs')}Saved ${esc(fmtTime(r.updatedAt))}</span>`;
   if (r.status === 'draft') return `<button class="btn plain" onclick="go('preview','${r.id}')">${ic('eye', 'sm')}Preview</button>${saved}<span class="spacer"></span><button class="btn filled capsule" onclick="startSigning()">${ic('signature', 'sm')}Review &amp; Sign</button>`;
   if (r.status === 'await') return `<button class="btn plain" onclick="go('preview','${r.id}')">${ic('eye', 'sm')}Preview</button><span class="spacer"></span><button class="btn filled capsule" onclick="signFlow(3)">${ic('hand', 'sm')}Get Customer Signature</button>`;
   if (r.status === 'void') return `<span class="spacer"></span><button class="btn plain" onclick="go('reports')">Back to Reports</button>`;
-  return `<button class="btn plain" onclick="reviseReport()">${ic('pen', 'sm')}Revise</button><span class="spacer"></span><button class="btn plain" onclick="exportReportMenu(this)">${ic('download', 'sm')}Data</button><button class="btn tinted capsule" onclick="go('preview','${r.id}')">${ic('eye', 'sm')}View PDF</button><button class="btn filled capsule" onclick="sharePdf(R,'client')">${ic('share', 'sm')}Share</button>`;
+  return `<button class="btn plain" onclick="reviseReport()">${ic('pen', 'sm')}Revise</button><span class="spacer"></span><button class="btn plain" onclick="exportReportMenu(this)">${ic('download', 'sm')}Data</button><button class="btn tinted capsule" onclick="go('preview','${r.id}')">${ic('eye', 'sm')}View PDF</button><button class="btn filled capsule" onclick="sendSheet(R)">${ic('mail', 'sm')}Send</button>`;
 }
 AFTER.editor = async () => {
   if (!R) return;
@@ -2392,7 +2394,7 @@ async function renderPhotos() {
 /* ---------- revise ---------- */
 function reviseReport() {
   confirmBox('Revise Report?', `This creates Rev ${R.rev + 1}. Signatures are cleared and the report must be signed again. The FSR # stays the same.`, 'Revise', async () => {
-    R.rev += 1; R.status = 'draft'; R.revisedFrom = R.signedAt;
+    R.rev += 1; R.status = 'draft'; R.revisedFrom = R.signedAt; delete R.sent;
     R.engineers.forEach(e => { delete e.sig; delete e.signedAt; });
     R.accept = { ...R.accept, sig: null, signedAt: null, mode: '' };
     delete R.hash; delete R.signedAt; delete R.retro;
@@ -2839,11 +2841,13 @@ const SF_STEPS = [
       <div style="text-align:center;margin-top:20px"><h1 class="title2">Report Locked</h1><p class="l2">${R.accept.emailCopy ? `Customer asked for a copy at ${esc(R.accept.emailCopy)}.` : 'Saved on this iPad.'}</p></div>
       <div class="group" style="max-width:460px;margin:20px auto">
         <button class="cell ic-row" id="d-view">${sq('eye', 'var(--gray)')}<span style="flex:1">View PDF</span>${chev}</button>
+        <button class="cell ic-row" id="d-send">${sq('mail', 'var(--blue)')}<span style="flex:1">Send Client Copy by Email</span>${chev}</button>
         <button class="cell ic-row" id="d-share">${sq('share', 'var(--green)')}<span style="flex:1">Share Client PDF</span>${chev}</button>
         <button class="cell ic-row" id="d-int">${sq('lock', 'var(--orange)')}<span style="flex:1">Share Internal PDF</span>${chev}</button>
         <button class="cell ic-row" id="d-new">${sq('plus', 'var(--tint)')}<span style="flex:1">New Report</span>${chev}</button></div>
-      <p class="sec-f" style="text-align:center">Emailing from your RainPhil mailbox arrives in a later update. Use Share → Mail or Outlook for now.</p>`;
+      <p class="sec-f" style="text-align:center">Not sent yet? The report waits in Reports → To Send, and you can send it any time from the report.</p>`;
     $('#d-view').onclick = () => { $('#signLayer').innerHTML = ''; go('preview', R.id); };
+    $('#d-send').onclick = () => sendSheet(R);
     $('#d-share').onclick = () => sharePdf(R, 'client');
     $('#d-int').onclick = () => sharePdf(R, 'internal');
     $('#d-new').onclick = () => { $('#signLayer').innerHTML = ''; createReport(); };
@@ -3635,6 +3639,7 @@ SCREENS.settings = async () => {
     ${srow('key', 'var(--gray)', 'Change Passcode', '', 'st-pin')}
     ${srow('lock', 'var(--gray)', 'Auto-Lock', `<span class="l2">${s.autoLockMin} Minutes</span>`, 'st-lockmin')}</div></div>
   <div class="gsec"><div class="sec-h">Reports</div><div class="group">
+    ${srow('mail', 'var(--blue)', 'Client Copy Email', '', 'st-mail')}
     ${srow('person', 'var(--teal)', 'Ask Customer for License No.', swc('askLicense', s.askLicense, 'Ask customer for license number'), '', false)}
     ${s.retroSigning ? srow('clock', 'var(--orange)', 'Retro Signing', swc('retroSigning', true, 'Retro signing'), '', false) : ''}
     ${srow('text', 'var(--gray)', 'Acceptance Statement', '', 'st-stmt')}</div>
@@ -3684,6 +3689,7 @@ AFTER.settings = () => {
   $('#st-restore-in').onchange = importBackup;
   $('#st-lock').onclick = lockNow;
   $('#st-about').onclick = aboutSheet;
+  $('#st-mail').onclick = emailSettingsSheet;
   $('#st-reg').onclick = registerSheet;
   $('#st-upnow').onclick = () => syncUploads(true).then(() => go('settings', null, true));
   pendingUploads().then(l => { const el = $('#st-pend'); if (el) el.textContent = l.length ? `${l.length} waiting` : 'Up to date'; });
@@ -4186,6 +4192,159 @@ function registerSheet() {
     await DB.put('profiles', App.user);
     closeSheet(); go('settings', null, true); banner('Office register saved', 'send');
     syncUploads();
+  };
+}
+
+/* ---- send.js ---- */
+/* Sending the client copy by email. The app cannot send mail itself: it saves the PDF, opens an Outlook on the web draft
+   with the recipient, subject and text filled in, and the engineer attaches the saved PDF. Reports waiting to be sent are
+   tracked so a copy missed at signing (or signed offline) is easy to find. */
+
+const SEND_DEFAULTS = {
+  sendSubject: 'FSR # {fsr} – Service Report – {customer}',
+  sendBody: 'Dear {contact},\n\nPlease find attached the Field Service Report for the service on {date}.\n\nFSR No.: {fsr}\nInstrument: {instrument}\nStatus: {status}\n\nThank you.\n\n{engineer}\n{designation}\nRainPhil Inc.',
+  sendCcSelf: true,
+  owaUrl: 'https://outlook.office.com/mail/deeplink/compose',
+};
+const sendSetting = k => { const v = settingsOf(App.user)[k]; return v === undefined || v === '' ? SEND_DEFAULTS[k] : v; };
+
+const recipientOf = r => ((r.accept && r.accept.emailCopy) || (r.contact && r.contact.email) || '').trim();
+// Signed, not yet sent, and someone to send it to
+const needsSend = r => r.status === 'final' && !r.sent && !!recipientOf(r);
+const sendMini = r => needsSend(r) ? `<span class="cap" style="font-size:13px;color:var(--orange)">Not sent</span>` : '';
+const sentLabel = r => r.sent ? `Sent ${fmtDay(r.sent.at)} to ${r.sent.to}` : '';
+
+function fillTemplate(t, r) {
+  const inst = [r.instrument.brand, r.instrument.model].filter(Boolean).join(' ') + (r.instrument.serial ? ` (S/N ${r.instrument.serial})` : '');
+  const vals = {
+    fsr: r.fsrNo || '', customer: r.customer.name || '', contact: r.contact.name || 'Sir/Madam', instrument: inst.trim(),
+    date: visitDates(r.service) || '', status: r.outcome || '', engineer: App.user.name || '', designation: App.user.designation || '',
+  };
+  return t.replace(/\{(\w+)\}/g, (m, k) => k in vals ? vals[k] : m);
+}
+function composeUrl(r, to, cc) {
+  const q = [['to', to], cc && ['cc', cc], ['subject', fillTemplate(sendSetting('sendSubject'), r)], ['body', fillTemplate(sendSetting('sendBody'), r)]]
+    .filter(Boolean).map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join('&');
+  return `${sendSetting('owaUrl').replace(/\?.*$/, '')}?${q}`;
+}
+
+async function markSent(r, to) {
+  r.sent = { at: now(), to, by: App.user.username };
+  r.status = 'sent';
+  audit(r, `Client copy reviewed (model and serial no. confirmed) and sent to ${to}`);
+  await saveReport(r);
+  setTimeout(() => syncUploads(), 500);
+}
+
+const sendCell = r => r.sent
+  ? `<div class="cell ic-row">${sq('mail', 'var(--green)')}<span style="flex:1">${esc(sentLabel(r))}</span><button class="btn plain" onclick="sendSheet(R)">Send Again</button></div>`
+  : `<div class="cell ic-row">${sq('mail', 'var(--orange)')}<span style="flex:1">Client copy not sent<br><span class="foot l2">${recipientOf(r) ? esc(recipientOf(r)) : 'No customer email on file – add one when sending.'}</span></span><button class="btn plain" onclick="sendSheet(R)">Send</button></div>`;
+
+// After the Outlook draft opens, ask when the engineer comes back to the app
+let _sendWait = null;
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState !== 'visible' || !_sendWait) return;
+  const w = _sendWait; _sendWait = null;
+  setTimeout(() => confirmBox('Did you send it?', `FSR # ${w.fsr} to ${w.to}. Choose Not Yet if you still need to attach the PDF or send it.`, 'Yes, Sent', async () => {
+    const r = await DB.get('reports', w.id); if (!r) return;
+    await markSent(r, w.to);
+    if (R && R.id === r.id) R = r;
+    closeSheet(); refreshUploadUI(); banner('Marked as sent', 'send');
+    if (Router.cur === 'editor' || Router.cur === 'home' || Router.cur === 'reports') go(Router.cur, Router.arg, true);
+  }), 400);
+});
+
+function sendSheet(r) {
+  r = r || R;
+  if (!r || !r.hash) return banner('Sign the report first', 'lock', null, 'var(--orange)');
+  const s = settingsOf(App.user), me = App.user.email || '';
+  const online = navigator.onLine;
+  const host = sheet('Send Client Copy', `<button class="btn plain" onclick="closeSheet()">Close</button>`, '',
+    `<div style="padding:16px">
+      ${r.sent ? `<div class="group" style="margin-bottom:16px"><div class="cell ic-row">${sq('send', 'var(--blue)')}<span style="flex:1">${esc(sentLabel(r))}</span></div></div>` : ''}
+      <div class="sec-h">1 · Recipient</div>
+      <div class="group"><label class="cell"><span class="lbl" style="min-width:60px">To</span><input class="val" id="sd-to" inputmode="email" autocapitalize="off" value="${esc(recipientOf(r))}" placeholder="name@customer.com"></label>
+        <label class="cell"><span class="lbl" style="min-width:60px">Cc</span><input class="val" id="sd-cc" inputmode="email" autocapitalize="off" value="${esc(s.sendCcSelf === false ? '' : me)}" placeholder="Optional"></label></div>
+      <div class="sec-h" style="margin-top:20px">2 · Review the report <span style="color:var(--red)">· required</span></div>
+      <div class="group"><button class="cell ic-row" id="sd-review">${sq('eye', 'var(--gray)')}<span style="flex:1">Review Client PDF<br><span class="foot l2">Open every page and check it before it goes to the customer.</span></span>${chev}</button>
+        <div class="cell" style="flex-direction:column;align-items:stretch;gap:2px"><span class="foot l2">Check against the instrument label</span>
+          <b>${esc([r.instrument.brand, r.instrument.model].filter(Boolean).join(' ') || 'No model entered')}</b>
+          <b class="mono">S/N ${esc(r.instrument.serial || 'not entered')}</b>${(r.modules || []).filter(m => m.serial).map(m => `<span class="mono">${esc(m.name || 'Module')}: ${esc(m.serial)}</span>`).join('')}</div>
+        <label class="cell" id="sd-ckrow2" style="opacity:.45"><span style="flex:1">Model and serial number are correct</span><input type="checkbox" id="sd-ck2" disabled></label>
+        <label class="cell" id="sd-ckrow" style="opacity:.45"><span style="flex:1">I reviewed all pages: customer, equipment, findings, status, signatures</span><input type="checkbox" id="sd-ck" disabled></label></div>
+      <div class="sec-h" style="margin-top:20px">3 · Save the PDF</div>
+      <div class="group"><button class="cell ic-row" id="sd-save">${sq('share', 'var(--green)')}<span style="flex:1">Save Client PDF<br><span class="foot l2">Choose “Save to Files”. Works without internet.</span></span>${chev}</button></div>
+      <div class="sec-h" style="margin-top:20px">4 · Open the Outlook draft</div>
+      <div class="group"><button class="cell ic-row" id="sd-open" style="opacity:.5">${sq('mail', 'var(--blue)')}<span style="flex:1">Open Outlook Draft<br><span class="foot l2">${online ? 'Recipient, subject and message are filled in.' : 'Needs internet. This report stays in your “To Send” list.'}</span></span>${chev}</button></div>
+      <div class="sec-f">In the draft tap Attach → Browse this device → pick the saved PDF, then send. When you return here the app asks if it was sent.</div>
+      <div class="group" style="margin-top:8px"><button class="cell" id="sd-copy" style="color:var(--tint)">Copy Subject &amp; Message</button>
+        <button class="cell" id="sd-mark" style="color:var(--tint);opacity:.5">${r.sent ? 'Mark as Sent Again' : 'Mark as Sent'}</button></div></div>`);
+  const to = () => $('#sd-to', host).value.trim(), valid = v => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v);
+  // The review comes first: the PDF must be opened, then ticked as checked, before saving, drafting or marking sent
+  let opened = false, ok = false;
+  const gate = () => {
+    ok = opened && $('#sd-ck', host).checked && $('#sd-ck2', host).checked;
+    ['#sd-ck', '#sd-ck2'].forEach(k => $(k, host).disabled = !opened);
+    $('#sd-ckrow', host).style.opacity = $('#sd-ckrow2', host).style.opacity = opened ? 1 : .45;
+    $('#sd-save', host).style.opacity = ok ? 1 : .5;
+    $('#sd-open', host).style.opacity = ok && navigator.onLine ? 1 : .5;
+    $('#sd-mark', host).style.opacity = ok ? 1 : .5;
+  };
+  const needReview = () => { banner('Review the report and confirm model and serial no. first (step 2)', 'eye', null, 'var(--orange)'); return false; };
+  $('#sd-review', host).onclick = async () => {
+    try {
+      const url = URL.createObjectURL(await buildPdf(r, 'client'));
+      window.open(url, '_blank'); setTimeout(() => URL.revokeObjectURL(url), 120000);
+      opened = true; gate();
+    } catch (e) { banner('Could not create the PDF: ' + e.message, 'x', null, 'var(--red)'); }
+  };
+  $('#sd-ck', host).onchange = $('#sd-ck2', host).onchange = gate;
+  $('#sd-save', host).onclick = () => ok ? sharePdf(r, 'client') : needReview();
+  $('#sd-open', host).onclick = () => {
+    if (!ok) return needReview();
+    if (!navigator.onLine) return banner('Needs internet – the report stays in To Send', 'clock', null, 'var(--orange)');
+    if (!valid(to())) return banner('Please check the customer’s email address', 'mail', null, 'var(--orange)');
+    const cc = $('#sd-cc', host).value.trim();
+    _sendWait = { id: r.id, fsr: r.fsrNo, to: to() };
+    window.open(composeUrl(r, to(), valid(cc) ? cc : ''), '_blank');
+  };
+  $('#sd-copy', host).onclick = async () => {
+    const t = `Subject: ${fillTemplate(sendSetting('sendSubject'), r)}\n\n${fillTemplate(sendSetting('sendBody'), r)}`;
+    try { await navigator.clipboard.writeText(t); banner('Copied', 'check'); } catch { banner('Could not copy', 'x', null, 'var(--red)'); }
+  };
+  $('#sd-mark', host).onclick = async () => {
+    if (!ok) return needReview();
+    if (!valid(to())) return banner('Add the customer’s email address first', 'mail', null, 'var(--orange)');
+    await markSent(r, to()); if (R && R.id === r.id) R = r;
+    closeSheet(); banner('Marked as sent', 'send');
+    if (Router.cur === 'editor' || Router.cur === 'home' || Router.cur === 'reports') go(Router.cur, Router.arg, true);
+  };
+}
+
+// Reminder when reports are waiting and the iPad is online
+async function remindUnsent() {
+  if (!App.user || !navigator.onLine) return;
+  const n = (await myReports()).filter(needsSend).length;
+  if (n) banner(`${n} report${n === 1 ? '' : 's'} waiting to be emailed`, 'mail', { label: 'View', fn: () => go('reports', 'tosend') }, 'var(--orange)');
+}
+addEventListener('online', () => setTimeout(remindUnsent, 2500));
+
+/* ---------- Settings: message templates ---------- */
+function emailSettingsSheet() {
+  const s = settingsOf(App.user), field = (id, label, v, rows) => `<div class="cell" style="flex-direction:column;align-items:stretch;gap:2px"><span class="foot l2">${label}</span><textarea class="full" id="${id}" style="min-height:${rows}px" autocapitalize="off">${esc(v)}</textarea></div>`;
+  const host = sheet('Client Copy Email', `<button class="btn plain" onclick="closeSheet()">Cancel</button>`, `<button class="btn plain" style="font-weight:600" id="es-save">Save</button>`,
+    `<div style="padding:16px"><div class="group">${field('es-sub', 'Subject', sendSetting('sendSubject'), 44)}${field('es-body', 'Message', sendSetting('sendBody'), 220)}
+      <label class="cell"><span style="flex:1">Copy me (Cc my email)</span><input type="checkbox" id="es-cc" ${s.sendCcSelf === false ? '' : 'checked'}></label>
+      ${field('es-owa', 'Outlook address', sendSetting('owaUrl'), 44)}</div>
+      <div class="sec-f">You can use {fsr} {customer} {contact} {instrument} {date} {status} {engineer} {designation}. The PDF is attached by you in Outlook.</div>
+      <div class="group"><button class="cell" id="es-reset" style="color:var(--red)">Reset to Defaults</button></div></div>`);
+  $('#es-save', host).onclick = async () => {
+    App.user.settings = { ...(App.user.settings || {}), sendSubject: $('#es-sub', host).value, sendBody: $('#es-body', host).value, sendCcSelf: $('#es-cc', host).checked, owaUrl: $('#es-owa', host).value.trim() };
+    await DB.put('profiles', App.user); closeSheet(); banner('Email settings saved', 'mail');
+  };
+  $('#es-reset', host).onclick = async () => {
+    const x = { ...(App.user.settings || {}) }; ['sendSubject', 'sendBody', 'sendCcSelf', 'owaUrl'].forEach(k => delete x[k]);
+    App.user.settings = x; await DB.put('profiles', App.user); closeSheet(); banner('Email settings reset', 'mail');
   };
 }
 
