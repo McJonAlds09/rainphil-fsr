@@ -1,5 +1,5 @@
 /* Offline cache. build.py stamps the build id here and in index.html so each release installs a fresh, matching cache. */
-const BUILD = '1.7.0-20261106133838';
+const BUILD = '1.7.0-20261106163317';
 const CACHE = 'rainphil-fsr-' + BUILD;
 const FILES = ['manifest.webmanifest', 'icons/icon-180.png', 'icons/icon-192.png', 'icons/icon-512.png'];
 

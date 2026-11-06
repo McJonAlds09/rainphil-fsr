@@ -10,7 +10,7 @@
 <meta name="theme-color" content="#F2F2F7" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; frame-src blob:; object-src 'none'; connect-src 'self' blob: data: https://script.google.com https://script.googleusercontent.com; base-uri 'none'; form-action 'none'">
-<meta name="fsr-build" content="1.7.0-20261106133838">
+<meta name="fsr-build" content="1.7.0-20261106163317">
 <title>RainPhil FSR</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icons/icon-180.png">
@@ -597,6 +597,14 @@ fieldset:disabled .chev{visibility:hidden}
 .cell input:focus-visible,.cell textarea:focus-visible{outline-offset:4px}
 @media (prefers-contrast:more){:root{--label-2:rgba(60,60,67,.85);--label-3:rgba(60,60,67,.55)}}
 @media (prefers-contrast:more) and (prefers-color-scheme:dark){:root:not([data-theme="light"]){--label-2:rgba(235,235,245,.85);--label-3:rgba(235,235,245,.55)}}
+
+/* v1.7.1 empty fields: a visible box so a blank entry is easy to find and tell apart from its neighbour */
+.cell textarea.full,.cell input.full{background:var(--fill);border-radius:9px;padding:8px 11px}
+.cell textarea.full:focus,.cell input.full:focus{background:var(--fill-3)}
+.cell input.val:placeholder-shown{background:var(--fill);border-radius:9px;padding:7px 11px;min-width:140px}
+.cell input.val:focus{background:var(--fill)}
+.cell input::placeholder,.cell textarea::placeholder{color:var(--label-2);opacity:.65}
+.cell input.val:placeholder-shown:not(:focus){box-shadow:inset 0 0 0 1px var(--sep)}
 
 </style>
 </head>
@@ -1396,7 +1404,7 @@ const FSK = {
   async importPublic(spkiB64) { return crypto.subtle.importKey('spki', FSK.b64(spkiB64), { name: 'ECDSA', namedCurve: 'P-256' }, false, ['verify']); },
   async verify(pub, f, user) { return crypto.subtle.verify({ name: 'ECDSA', hash: 'SHA-256' }, pub, f.sig, FSK.message(f, user)); },
   async sign(priv, f, user) { return new Uint8Array(await crypto.subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, priv, FSK.message(f, user))); },
-  link: (appUrl, key, user) => `${appUrl.replace(/#.*$/, '').replace(/\/?$/, '/')}#activate=${encodeURIComponent(key)}&u=${encodeURIComponent(user)}`,
+  link: (appUrl, key, user, token) => `${appUrl.replace(/#.*$/, '').replace(/\/?$/, '/')}#activate=${encodeURIComponent(key)}&u=${encodeURIComponent(user)}${token ? '&t=' + encodeURIComponent(token) : ''}`,
 };
 
 /* ---- license.js ---- */
@@ -1524,9 +1532,9 @@ const usedBeforeValue = root => $('#ubseg .on', root)?.dataset.v === 'used' ? (p
 function readActivation() {
   const m = location.hash.match(/activate=([^&]+)/);
   if (m) {
-    const u = location.hash.match(/[&#]u=([^&]+)/);
+    const u = location.hash.match(/[&#]u=([^&]+)/), t = location.hash.match(/[&#]t=([^&]+)/);
     history.replaceState(null, '', location.pathname + location.search);
-    const act = { key: decodeURIComponent(m[1]), user: u ? decodeURIComponent(u[1]) : '', at: Date.now() };
+    const act = { key: decodeURIComponent(m[1]), user: u ? decodeURIComponent(u[1]) : '', token: t ? decodeURIComponent(t[1]) : '', at: Date.now() };
     // localStorage too: if iOS copies Safari's storage into the Home Screen app, setup starts pre-filled
     try { sessionStorage.setItem('fsr.activation', JSON.stringify(act)); localStorage.setItem('fsr.activation', JSON.stringify(act)); } catch { }
     return act;
@@ -1546,6 +1554,12 @@ async function handleActivation(act) {
   if (!App.user) { App.pendingActivation = act; return; }
   activationUsed();
   if (FSK.norm(App.user.username) !== FSK.norm(act.user)) return alertBox('Activation Link', `This link is for ${owner.name}. Switch to their profile to add it.`, [{ label: 'OK' }]);
+  if (act.token && settingsOf(App.user).uploadToken !== act.token) {
+    App.user.settings = { ...(App.user.settings || {}), uploadToken: act.token };
+    await DB.put('profiles', App.user);
+    banner('Office register connected', 'send');
+    if (typeof syncUploads === 'function') setTimeout(syncUploads, 1500);
+  }
   addBlockSheet(act.key);
 }
 
@@ -1628,7 +1642,7 @@ function installCoach(act) {
       <button class="btn plain rise" style="--d:6;margin-top:6px;font-size:15px" id="coachskip">Set up in Safari instead</button>
     </div></div>`;
   if (act) $('#cpkey').onclick = async e => {
-    const link = FSK.link(appBase(), act.key, act.user);
+    const link = FSK.link(appBase(), act.key, act.user, act.token);
     try { await navigator.clipboard.writeText(link); } catch { const t = document.createElement('textarea'); t.value = link; document.body.append(t); t.select(); document.execCommand('copy'); t.remove(); }
     e.target.textContent = 'Copied ✓';
   };
@@ -1642,11 +1656,12 @@ function installCoach(act) {
 async function pasteKey() {
   let t;
   try { t = await navigator.clipboard.readText(); } catch { return banner('Long-press the key box and choose Paste', 'key', null, 'var(--orange)'); }
-  const link = t.match(/activate=([^&\s]+)/), user = t.match(/[&#]u=([^&\s]+)/);
+  const link = t.match(/activate=([^&\s]+)/), user = t.match(/[&#]u=([^&\s]+)/), tok = t.match(/[&#]t=([^&\s]+)/);
   const key = link ? decodeURIComponent(link[1]) : (t.match(/FSK1(?:[-\s]*[0-9A-Z]{1,6})+/i) || [''])[0].replace(/\s+/g, '');
   if (!key) return banner('No FSR key on the clipboard – copy it from your email first', 'key', null, 'var(--orange)');
   $('#ob-key').value = key;
   if (user) $('#ob-user').value = decodeURIComponent(user[1]);
+  if (tok) draftProfile.uploadToken = decodeURIComponent(tok[1]);
   $('#ob-key').dispatchEvent(new Event('input'));
 }
 
@@ -1799,7 +1814,7 @@ const WELCOME_FEATS = [
 ];
 function onboarding(step, act) {
   detachKeypads();
-  if (act) { draftProfile.key = act.key; draftProfile.username = act.user; draftProfile.fromLink = true; }
+  if (act) { draftProfile.key = act.key; draftProfile.username = act.user; draftProfile.fromLink = true; if (act.token) draftProfile.uploadToken = act.token; }
   const pages = [
     () => `<div class="fr-icon rise" style="--d:0;margin-bottom:20px"></div><h1 class="large-title rise" style="--d:0">Welcome to<br><span class="accent">RainPhil FSR</span></h1>
       <p class="l2 rise" style="--d:1;margin:8px 0 18px">${draftProfile.fromLink ? 'Your activation link is ready – let’s set up your profile.' : 'Set up your engineer profile on this iPad.'}</p>
@@ -1916,7 +1931,7 @@ async function finishOnboarding() {
   const p = {
     username: d.username, name: d.name, designation: d.designation, mobile: d.mobile, email: d.email,
     pinSalt: salt, pinHash: hash, pinLen: d.pinLen || 4, signature: pads.ob.len() > 60 ? pads.ob.toDataURL() : null,
-    blocks: [], settings: {}, createdAt: now(),
+    blocks: [], settings: d.uploadToken ? { uploadToken: d.uploadToken } : {}, createdAt: now(),
   };
   addBlockTo(p, d.block, d.usedLast);
   activationUsed();
@@ -2961,6 +2976,7 @@ async function buildPdf(r, kind) {
   const doc = newPdfDoc();
   await drawReport(doc, r, kind);
   doc.setProperties({ title: pdfFileName(r, kind).replace(/\.pdf$/, ''), subject: 'Field Service Report', author: 'RainPhil Inc.', creator: 'RainPhil FSR' });
+  buildPdf.pages = doc.getNumberOfPages();
   return doc.output('blob');
 }
 // Several reports in one PDF (for printing or archiving); each keeps its own page numbering
@@ -3505,7 +3521,8 @@ SCREENS.preview = async id => {
   return `<div class="row wrap" style="margin:-8px 0 16px"><button class="btn plain" style="padding:0" onclick="go('editor','${R.id}')">${ic('chev-l', 'sm')}Back to Report</button><span class="spacer"></span>
     <div class="segmented" id="pvseg"><button data-k="client" class="${pvKind === 'client' ? 'on' : ''}">Client</button><button data-k="internal" class="${pvKind === 'internal' ? 'on' : ''}">Internal</button></div></div>
     <div class="foot l2" id="pvname" style="margin-bottom:10px"></div>
-    <div class="qlook" style="padding:0;overflow:hidden"><iframe id="pvframe" title="PDF preview" style="width:100%;height:calc(100dvh - 230px);min-height:500px;border:0;background:#fff"></iframe></div>`;
+    <div class="qlook" style="padding:0;overflow:hidden"><iframe id="pvframe" title="PDF preview" style="width:100%;height:calc(100dvh - 230px);min-height:500px;border:0;background:#fff"></iframe></div>
+    <div class="row" id="pvmore" style="display:none;margin-top:12px;gap:10px;align-items:center"><span class="foot l2" style="flex:1" id="pvpages"></span><button class="btn small" id="pvopen">Open All Pages</button></div>`;
 };
 AFTER.preview = async () => {
   if (!R) return go('reports');
@@ -3517,6 +3534,11 @@ AFTER.preview = async () => {
     if (pvUrl) URL.revokeObjectURL(pvUrl);
     pvUrl = URL.createObjectURL(blob);
     $('#pvframe').src = pvUrl;
+    // iPad Safari shows only the first page inside a preview frame, so a longer report offers the full PDF
+    const n = buildPdf.pages || 1, more = $('#pvmore');
+    more.style.display = n > 1 ? 'flex' : 'none';
+    $('#pvpages').textContent = `This report has ${n} pages. The preview shows page 1 only.`;
+    $('#pvopen').onclick = () => window.open(pvUrl, '_blank');
   };
   $$('#pvseg button').forEach(b => b.addEventListener('click', () => { pvKind = b.dataset.k; paint(); }));
   $('#pvshare').onclick = () => sharePdf(R, pvKind);
