@@ -10,7 +10,7 @@
 <meta name="theme-color" content="#F2F2F7" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; frame-src blob:; object-src 'none'; connect-src 'self' blob: data: https://script.google.com https://script.googleusercontent.com; base-uri 'none'; form-action 'none'">
-<meta name="fsr-build" content="1.7.0-20261106170308">
+<meta name="fsr-build" content="1.7.0-20261106174529">
 <title>RainPhil FSR</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icons/icon-180.png">
@@ -2394,7 +2394,7 @@ async function renderPhotos() {
 /* ---------- revise ---------- */
 function reviseReport() {
   confirmBox('Revise Report?', `This creates Rev ${R.rev + 1}. Signatures are cleared and the report must be signed again. The FSR # stays the same.`, 'Revise', async () => {
-    R.rev += 1; R.status = 'draft'; R.revisedFrom = R.signedAt; delete R.sent;
+    R.rev += 1; R.status = 'draft'; R.revisedFrom = R.signedAt; delete R.sent; delete R.pdf;
     R.engineers.forEach(e => { delete e.sig; delete e.signedAt; });
     R.accept = { ...R.accept, sig: null, signedAt: null, mode: '' };
     delete R.hash; delete R.signedAt; delete R.retro;
@@ -2862,6 +2862,7 @@ async function finalizeReport() {
   R.hash = await reportHash(R);
   audit(R, R.accept.mode === 'declined' ? 'Finalised – customer declined to sign' : 'Finalised and locked');
   await saveReport(R);
+  try { await clientPdfFor(R); } catch (e) { console.error(e); } // the client copy is ready for sending as soon as the report is signed
   setTimeout(() => syncUploads(), 800); // copy it to the office register as soon as this iPad is online
   return true;
 }
@@ -4208,6 +4209,15 @@ const SEND_DEFAULTS = {
 };
 const sendSetting = k => { const v = settingsOf(App.user)[k]; return v === undefined || v === '' ? SEND_DEFAULTS[k] : v; };
 
+/* The client PDF is made when the report is signed and kept with it, so the exact file that was reviewed is the one sent.
+   Older signed reports get theirs the first time it is needed. */
+async function clientPdfFor(r) {
+  if (!r.pdf || !r.pdf.data) {
+    r.pdf = { name: pdfFileName(r, 'client'), data: await blobToDataURL(await buildPdf(r, 'client')), at: now() };
+    await saveReport(r);
+  }
+  return { blob: await dataURLToBlob(r.pdf.data), name: r.pdf.name };
+}
 const recipientOf = r => ((r.accept && r.accept.emailCopy) || (r.contact && r.contact.email) || '').trim();
 // Signed, not yet sent, and someone to send it to
 const needsSend = r => r.status === 'final' && !r.sent && !!recipientOf(r);
@@ -4238,7 +4248,7 @@ async function markSent(r, to) {
 
 const sendCell = r => r.sent
   ? `<div class="cell ic-row">${sq('mail', 'var(--green)')}<span style="flex:1">${esc(sentLabel(r))}</span><button class="btn plain" onclick="sendSheet(R)">Send Again</button></div>`
-  : `<div class="cell ic-row">${sq('mail', 'var(--orange)')}<span style="flex:1">Client copy not sent<br><span class="foot l2">${recipientOf(r) ? esc(recipientOf(r)) : 'No customer email on file – add one when sending.'}</span></span><button class="btn plain" onclick="sendSheet(R)">Send</button></div>`;
+  : `<div class="cell ic-row">${sq('mail', 'var(--orange)')}<span style="flex:1">Client copy not sent<br><span class="foot l2">${recipientOf(r) ? esc(recipientOf(r)) : 'No customer email on file – add one when sending.'}<br>${r.pdf ? 'PDF ready: ' + esc(r.pdf.name) : 'PDF is made when you tap Send.'}</span></span><button class="btn plain" onclick="sendSheet(R)">Send</button></div>`;
 
 // After the Outlook draft opens, ask when the engineer comes back to the app
 let _sendWait = null;
@@ -4273,6 +4283,7 @@ function sendSheet(r) {
         <label class="cell" id="sd-ckrow2" style="opacity:.45"><span style="flex:1">Model and serial number are correct</span><input type="checkbox" id="sd-ck2" disabled></label>
         <label class="cell" id="sd-ckrow" style="opacity:.45"><span style="flex:1">I reviewed all pages: customer, equipment, findings, status, signatures</span><input type="checkbox" id="sd-ck" disabled></label></div>
       <div class="sec-h" style="margin-top:20px">3 · Save the PDF</div>
+      <div class="foot l2" style="padding:0 16px 6px">File: ${esc(r.pdf ? r.pdf.name : pdfFileName(r, 'client'))}</div>
       <div class="group"><button class="cell ic-row" id="sd-save">${sq('share', 'var(--green)')}<span style="flex:1">Save Client PDF<br><span class="foot l2">Choose “Save to Files”. Works without internet.</span></span>${chev}</button></div>
       <div class="sec-h" style="margin-top:20px">4 · Open the Outlook draft</div>
       <div class="group"><button class="cell ic-row" id="sd-open" style="opacity:.5">${sq('mail', 'var(--blue)')}<span style="flex:1">Open Outlook Draft<br><span class="foot l2">${online ? 'Recipient, subject and message are filled in.' : 'Needs internet. This report stays in your “To Send” list.'}</span></span>${chev}</button></div>
@@ -4293,13 +4304,16 @@ function sendSheet(r) {
   const needReview = () => { banner('Review the report and confirm model and serial no. first (step 2)', 'eye', null, 'var(--orange)'); return false; };
   $('#sd-review', host).onclick = async () => {
     try {
-      const url = URL.createObjectURL(await buildPdf(r, 'client'));
+      const url = URL.createObjectURL((await clientPdfFor(r)).blob);
       window.open(url, '_blank'); setTimeout(() => URL.revokeObjectURL(url), 120000);
       opened = true; gate();
     } catch (e) { banner('Could not create the PDF: ' + e.message, 'x', null, 'var(--red)'); }
   };
   $('#sd-ck', host).onchange = $('#sd-ck2', host).onchange = gate;
-  $('#sd-save', host).onclick = () => ok ? sharePdf(r, 'client') : needReview();
+  $('#sd-save', host).onclick = async () => {
+    if (!ok) return needReview();
+    try { const f = await clientPdfFor(r); await shareOrDownload(f.blob, f.name); } catch (e) { banner('Could not create the PDF: ' + e.message, 'x', null, 'var(--red)'); }
+  };
   $('#sd-open', host).onclick = () => {
     if (!ok) return needReview();
     if (!navigator.onLine) return banner('Needs internet – the report stays in To Send', 'clock', null, 'var(--orange)');
