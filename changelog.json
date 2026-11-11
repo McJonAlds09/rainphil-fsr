@@ -1,0 +1,7 @@
+[
+  { "version": "1.9.51", "date": "2026-11-12", "items": ["The update notice in the bell now shows what is new before you update."] },
+  { "version": "1.9.50", "date": "2026-11-12", "items": ["FSR number blocks activated earlier are checked against this device. If a block needs a new key, the app shows the device code to send to the license activator."] },
+  { "version": "1.9.49", "date": "2026-11-12", "items": ["FSR number keys are now tied to one device. The activation screen shows your device code to send to the license activator.", "On an iPad, add the app to the Home Screen before activating.", "The office register refuses an FSR number that was already used on another device."] },
+  { "version": "1.9.48", "date": "2026-11-10", "items": ["Star your favorite customers, contacts and systems: they are listed first.", "Recently used customers appear at the top of the customer list."] },
+  { "version": "1.9.47", "date": "2026-11-09", "items": ["Check Details on site: confirm or correct the customer, contact and system against the nameplate. Corrections go to the office for approval."] }
+]
