@@ -1,4 +1,5 @@
 [
+  { "version": "1.9.53", "date": "2026-11-12", "items": ["Getting a new key after you already used some FSR numbers is smoother: the app tells the license activator your last used number, and your numbers continue after it.", "Older iPads (iOS 12 and earlier, such as the iPad mini 2) now show a clear message instead of a blank screen. The app needs iPadOS 15 or newer."] },
   { "version": "1.9.52", "date": "2026-11-12", "items": ["Old FSR number keys that are not tied to a device are no longer accepted. If your numbers need a new key, the app shows your device code to send to the license activator."] },
   { "version": "1.9.51", "date": "2026-11-12", "items": ["The update notice in the bell now shows what is new before you update."] },
   { "version": "1.9.50", "date": "2026-11-12", "items": ["FSR number blocks activated earlier are checked against this device. If a block needs a new key, the app shows the device code to send to the license activator."] },
