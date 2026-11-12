@@ -1,4 +1,5 @@
 [
+  { "version": "1.9.52", "date": "2026-11-12", "items": ["Old FSR number keys that are not tied to a device are no longer accepted. If your numbers need a new key, the app shows your device code to send to the license activator."] },
   { "version": "1.9.51", "date": "2026-11-12", "items": ["The update notice in the bell now shows what is new before you update."] },
   { "version": "1.9.50", "date": "2026-11-12", "items": ["FSR number blocks activated earlier are checked against this device. If a block needs a new key, the app shows the device code to send to the license activator."] },
   { "version": "1.9.49", "date": "2026-11-12", "items": ["FSR number keys are now tied to one device. The activation screen shows your device code to send to the license activator.", "On an iPad, add the app to the Home Screen before activating.", "The office register refuses an FSR number that was already used on another device."] },
