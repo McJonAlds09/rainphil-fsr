@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<meta name="robots" content="noindex">
+<title>RainPhil FSR – your activation key</title>
+<style>
+  :root { --bg:#0b1f44; --card:#13295a; --ink:#ffffff; --mut:#b9c6e4; --green:#34c759; --line:rgba(255,255,255,.14); }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 17px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+  main { max-width: 560px; margin: 0 auto; padding: 40px 20px 48px; }
+  h1 { font-size: 28px; line-height: 1.2; margin: 0 0 6px; }
+  .who { color: var(--mut); margin: 0 0 22px; }
+  button.main { display: block; width: 100%; min-height: 56px; border: 0; border-radius: 14px; background: #fff; color: var(--bg); font: 600 19px/1 inherit; cursor: pointer; }
+  button.main:active { transform: scale(.98); }
+  .ok { background: rgba(52,199,89,.18); border: 1px solid rgba(52,199,89,.5); border-radius: 12px; padding: 12px 14px; margin: 14px 0 0; }
+  .bad { background: rgba(255,69,58,.16); border: 1px solid rgba(255,69,58,.5); border-radius: 12px; padding: 12px 14px; }
+  ol { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 16px 16px 16px 38px; margin: 22px 0; }
+  ol li { margin: 6px 0; }
+  details { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 12px 16px; }
+  summary { cursor: pointer; font-weight: 600; }
+  textarea { width: 100%; min-height: 110px; margin-top: 10px; border-radius: 10px; border: 1px solid var(--line); background: #0a1838; color: var(--ink); font: 13px/1.4 ui-monospace, Menlo, Consolas, monospace; padding: 10px; }
+  .note { color: var(--mut); font-size: 14px; margin-top: 22px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Your activation key</h1>
+  <p class="who" id="who"></p>
+  <div id="ready">
+    <button class="main" id="copy" type="button">Copy Activation Details</button>
+    <p class="ok" id="done" hidden>Copied. Now open <b>RainPhil FSR</b> from your Home Screen and tap <b>Paste Key</b>.</p>
+    <ol>
+      <li>Tap <b>Copy Activation Details</b>.</li>
+      <li>Close Safari. Open <b>RainPhil FSR</b> from its icon on your Home Screen.</li>
+      <li>On the activation screen, tap <b>Paste Key</b>. Your username, key and upload token are filled in.</li>
+    </ol>
+    <details>
+      <summary>Copy does not work?</summary>
+      <p>Press and hold the text below, choose <b>Select All</b>, then <b>Copy</b>.</p>
+      <textarea id="kp-text" readonly></textarea>
+    </details>
+  </div>
+  <p class="bad" id="broken" hidden>This link is not complete. Use the key written in your email instead, or ask the license activator for a new link.</p>
+  <p class="note">This page works without internet and sends nothing anywhere. The key and the upload token are for you only: do not forward this email.</p>
+</main>
+<script>
+/* Old-style JavaScript on purpose (no arrow functions): this page must work on any iPad browser.
+   The key travels in the part of the address after #, which the browser never sends to a server. */
+(function () {
+  var p = {};
+  location.hash.replace(/^#/, '').split('&').forEach(function (kv) { var i = kv.indexOf('='); if (i > 0) { try { p[kv.slice(0, i)] = decodeURIComponent(kv.slice(i + 1)); } catch (e) { } } });
+  var base = location.href.replace(/#.*$/, '').replace(/key\.html.*$/, '');
+  var text = p.k ? base + '#activate=' + encodeURIComponent(p.k) + '&u=' + encodeURIComponent(p.u || '') + (p.t ? '&t=' + encodeURIComponent(p.t) : '') : '';
+  window.__activationText = text;
+  if (!text) { document.getElementById('ready').hidden = true; document.getElementById('broken').hidden = false; return; }
+  document.getElementById('who').textContent = p.u ? 'For username: ' + p.u : '';
+  var box = document.getElementById('kp-text'); box.value = text;
+  try { history.replaceState(null, '', location.pathname); } catch (e) { }   // the key no longer shows in the address bar
+  document.getElementById('copy').onclick = function () {
+    var done = function () { document.getElementById('done').hidden = false; };
+    if (navigator.clipboard && navigator.clipboard.writeText) { navigator.clipboard.writeText(text).then(done, function () { fallback(); }); } else fallback();
+    function fallback() { box.parentNode.open = true; box.focus(); box.select(); try { if (document.execCommand('copy')) done(); } catch (e) { } }
+  };
+})();
+</script>
+</body>
+</html>
