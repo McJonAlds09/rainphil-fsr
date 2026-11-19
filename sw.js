@@ -1,5 +1,5 @@
 /* Offline cache. build.py stamps the build id here and in index.html so each release installs a fresh, matching cache. */
-const BUILD = '1.9.69-20261119074633';
+const BUILD = '1.9.70-20261119081339';
 const CACHE = 'rainphil-fsr-' + BUILD;
 const FILES = ['manifest.webmanifest', 'icons/icon-180.png', 'icons/icon-192.png', 'icons/icon-512.png'];
 // The PDF viewer library (pdf.js) has its own cache that survives app updates, because it changes only when the library does.
